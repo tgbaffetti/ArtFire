@@ -1,0 +1,46 @@
+{
+  "model": "pod-transformer",
+  "dataset": {
+    "data_paths": [
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/sineSweep_f1_f80_A02.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/sineSweep_f1_f80_A04.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/step_A03.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/step_A05.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/sine_f10_A03.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/sine_f10_A05.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/sine_f40_A03.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/sine_f40_A05.npy"
+    ],
+    "features": [
+      "p",
+      "U1",
+      "U3",
+      "rho",
+      "T",
+      "mix:Q",
+      "CH4",
+      "O2",
+      "H2O",
+      "CO2",
+      "OH"
+    ],
+    "phi_paths": [
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/phi_sineSweep_f1_f80_A02.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/phi_sineSweep_f1_f80_A04.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/phi_step_A03.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/phi_step_A05.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/phi_sine_f10_A03.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/phi_sine_f10_A05.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/phi_sine_f40_A03.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/phi_sine_f40_A05.npy"
+    ]
+  },
+  "hardware": {
+    "num_gpus": 1
+  },
+  "output": {
+    "models_dir": "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/AAA_newT_OOS/models_POD7_forcing_a2/",
+    "test_dir": "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/AAA_newT_OOS/test_OOS_POD7_forcing_a2",
+    "plot_start_epoch": 1
+  }
+}

@@ -1,0 +1,12 @@
+__pycache__/
+
+dummy_data/
+dummy_trained_models/
+dummy_tested_models/
+
+data/
+trained_models/
+tested_models/
+HPO_dummy.json
+train_dummy.json
+test_dummy.json

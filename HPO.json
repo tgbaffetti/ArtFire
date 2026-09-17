@@ -1,0 +1,78 @@
+{
+  "model": "pod-transformer",
+  "cv_folds": 2,
+  "cv_walking": true,
+  "epochs": {
+    "transformer": 200
+  },
+  "hardware": {
+    "num_gpus": 1
+  },
+  "pruning": {
+    "enabled": true,
+    "n_startup_trials": 5,
+    "n_warmup_steps": 10,
+    "interval_steps": 1
+  },
+  "stages": {
+    "transformer": {
+      "n_trials": 200,
+      "hp": {
+        "lr": {
+          "min": 1e-09,
+          "max": 0.05,
+          "log": true
+        },
+        "scheduler_warmup_epochs": {
+          "min": 10,
+          "max": 30
+        },
+        "scheduler_initial_lr_divisor": {
+          "min": 5,
+          "max": 100,
+          "log": true
+        },
+        "scheduler_decay_every_epochs": {
+          "min": 30,
+          "max": 100
+        },
+        "scheduler_decay_gamma": {
+          "min": 0.7,
+          "max": 0.99
+        },
+        "transformer_heads": {
+          "choices": [
+            1,
+            2,
+            4,
+            8
+          ]
+        },
+        "transformer_layers": {
+          "min": 2,
+          "max": 10
+        },
+        "dropout": {
+          "min": 0.05,
+          "max": 0.1
+        },
+        "n_past": {
+          "min": 1,
+          "max": 25
+        },
+        "rollout_steps": {
+          "min": 1,
+          "max": 5
+        },
+        "rollout_discount": {
+          "min": 0.2,
+          "max": 0.9
+        }
+      }
+    }
+  },
+  "output": {
+    "directory": "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/AAA_dummy_newT_hpo_results",
+    "filename": "ArtFire_HPO_POD_forcing.json"
+  }
+}

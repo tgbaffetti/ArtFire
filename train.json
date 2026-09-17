@@ -1,0 +1,43 @@
+{
+  "model": "pod-transformer",
+  "dataset": {
+    "data_paths": [
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/sineSweep_f1_f80_A02.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/sineSweep_f1_f80_A04.npy"
+    ],
+    "grid_path": "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/grid.npy",
+    "phi_paths": [
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/phi_sineSweep_f1_f80_A02.npy",
+      "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/data/phi_sineSweep_f1_f80_A04.npy"
+    ]
+  },
+  "training": {
+    "epochs_transformer": 1000,
+    "batch_size": 64,
+    "lr": 0.0009523860067976268,
+    "dropout": 0.1,
+    "scheduler": {
+      "warmup_epochs": 12,
+      "initial_lr_divisor": 5.150778410713291,
+      "decay_every_epochs": 82,
+      "decay_gamma": 0.7569689280096408
+    },
+    "n_past": 1,
+    "rollout_steps": 1,
+    "rollout_discount": 1.0,
+    "save_checkpoint_each_epoch": true
+  },
+  "architecture": {
+    "rank_POD": 10,
+    "transformer_embed_dim": 64,
+    "transformer_layers": 2,
+    "transformer_heads": 8,
+    "transformer_hidden_dim": 256
+  },
+  "hardware": {
+    "num_gpus": 1
+  },
+  "output": {
+    "models_dir": "/globalsc/ulb/atm/baffetti/research/Transformer/ArtFire_files/AAA_newT_OOS/models_POD5"
+  }
+}
