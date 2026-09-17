@@ -1,7 +1,8 @@
 {
   "model": "pod-transformer",
   "cv_folds": 2,
-  "cv_walking": true,
+  "cv_type": "embargo",
+  "cv_embargo_steps": 20,
   "epochs": {
     "transformer": 200
   },

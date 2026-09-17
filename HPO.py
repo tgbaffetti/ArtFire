@@ -19,11 +19,12 @@ riutilizzata per tutti i trial).
 
 Objective: media della loss di validazione sulle ultime epoch (mantiene
 esattamente la definizione originale), mediata anche tra i fold se
-cv_folds > 0. cv_folds e cv_walking vivono in HPO.json (usati solo qui,
-mai in train.json):
-  - cv_folds == 0        -> nessuna CV, split random 70% training / 30% validation
-  - cv_folds >= 2, cv_walking=true  -> walk-forward CV (rispetta l'ordine temporale)
-  - cv_folds >= 2, cv_walking=false -> k-fold "classico" (shuffle, ignora l'ordine temporale)
+cv_folds > 0. cv_folds e cv_type vivono in HPO.json (usati solo qui, mai
+in train.json). cv_folds e' SEMPRE >= 2 (nessuno split casuale):
+  - cv_type == "walking"  -> walk-forward CV (train = blocchi passati, val = blocco successivo)
+  - cv_type == "embargo"  -> Purged Block K-Fold con Embargo: blocco i = val,
+    gli altri = train, con purging delle finestre a cavallo del blocco di
+    validation e un margine di embargo_steps timestep prima/dopo
 Include pruning (MedianPruner) per interrompere presto i trial non
 promettenti.
 
@@ -38,7 +39,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import optuna
 import torch
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 
 import models
 import utils
@@ -70,8 +71,12 @@ def _validate_hpo_config(cfg: Dict[str, Any]) -> None:
             raise ConfigError(f"Chiave richiesta mancante in HPO config: '{key}'")
     if int(cfg["epochs"].get("transformer", 0)) <= 0:
         raise ConfigError("epochs.transformer deve essere > 0")
-    if int(cfg.get("cv_folds", 0)) == 1:
-        print("WARNING: cv_folds=1 non ha senso per una cross-validation; trattato come cv_folds=0 (split random 70/30).")
+    cv_folds = int(cfg.get("cv_folds", 0))
+    if cv_folds < 2:
+        raise ConfigError(f"cv_folds deve essere >= 2 (nessuno split casuale supportato), ricevuto {cv_folds}")
+    cv_type = cfg.get("cv_type", "walking")
+    if cv_type not in ("walking", "embargo"):
+        raise ConfigError(f"cv_type deve essere 'walking' o 'embargo', ricevuto '{cv_type}'")
 
 
 def _sample_float(trial, name: str, key: str, spec: Dict[str, Any]) -> float:
@@ -92,37 +97,44 @@ def _sample_int(trial, name: str, key: str, spec: Dict[str, Any]) -> int:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Split train/val delle finestre latenti (CV walk-forward oppure random 70/30)
+# Split train/val delle finestre latenti (walk-forward oppure purged block
+# k-fold con embargo — sempre cv_folds >= 2, mai split casuale)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _build_train_val_splits(latent_list, phi_list, past_len, future_len, cv_folds: int,
-                             cv_walking: bool = True, seed: int = 42):
+                             cv_type: str = "walking", embargo_steps: int = 0):
     """
-    cv_folds == 0 (o == 1, degenere) -> split RANDOM 70/30 a livello di finestra (no CV)
-    cv_folds >= 2, cv_walking=True    -> walk-forward CV per dataset (rispetta l'ordine temporale)
-    cv_folds >= 2, cv_walking=False   -> k-fold "classico": finestre mischiate e divise in
-                                          cv_folds blocchi, ignorando l'ordine temporale/il
-                                          dataset di provenienza
-    Ritorna una lista di (train_dataset, val_dataset).
+    cv_type == "walking"  -> walk-forward CV per dataset: train = blocchi
+                              1..k, val = blocco k+1 (espansione temporale,
+                              comportamento originale)
+    cv_type == "embargo"  -> Purged Block K-Fold con Embargo: il dataset e'
+                              diviso in cv_folds blocchi contigui, il blocco
+                              i e' validation e gli altri cv_folds-1 sono
+                              training, con le finestre di training che si
+                              sovrappongono al blocco di validation (purge)
+                              o che ne sono a meno di embargo_steps timestep
+                              di distanza, PRIMA e DOPO (embargo), rimosse.
+    Ritorna una lista di (train_dataset, val_dataset), una per fold.
+    Nessuno split casuale: cv_folds deve essere >= 2.
     """
     n_datasets = len(latent_list)
+    window_total = past_len + future_len
 
-    if cv_folds < 2:
-        full_ds = utils.LatentWindowDataset(latent_list, phi_list, past_len, future_len)
-        train_idx, val_idx = utils.random_window_split(len(full_ds), val_fraction=0.3, seed=seed)
-        return [(Subset(full_ds, train_idx), Subset(full_ds, val_idx))]
+    if cv_type == "walking":
+        per_dataset_folds = [utils.build_contiguous_folds(len(latent_list[i]), cv_folds) for i in range(n_datasets)]
+        if any(len(f) == 0 for f in per_dataset_folds):
+            raise ValueError(
+                f"cv_folds={cv_folds} (cv_type=walking) richiede almeno {cv_folds + 1} snapshot "
+                f"per ciascun dataset di training; riduci cv_folds."
+            )
+    elif cv_type == "embargo":
+        per_dataset_folds = [
+            utils.build_embargo_kfold_splits(len(latent_list[i]), cv_folds, window_total, embargo_steps)
+            for i in range(n_datasets)
+        ]
+    else:
+        raise ValueError(f"cv_type deve essere 'walking' o 'embargo', ricevuto '{cv_type}'")
 
-    if not cv_walking:
-        full_ds = utils.LatentWindowDataset(latent_list, phi_list, past_len, future_len)
-        kfolds = utils.build_classic_kfold_splits(len(full_ds), cv_folds, seed=seed)
-        return [(Subset(full_ds, tr), Subset(full_ds, val)) for tr, val in kfolds]
-
-    per_dataset_folds = [utils.build_contiguous_folds(len(latent_list[i]), cv_folds) for i in range(n_datasets)]
-    if any(len(f) == 0 for f in per_dataset_folds):
-        raise ValueError(
-            f"cv_folds={cv_folds} (cv_walking=true) richiede almeno {cv_folds + 1} snapshot per "
-            f"ciascun dataset di training; usa cv_walking:false oppure riduci cv_folds."
-        )
     folds = []
     for fold_id in range(cv_folds):
         tr_idx = [per_dataset_folds[i][fold_id][0] for i in range(n_datasets)]
@@ -205,13 +217,13 @@ def _train_single_fold(ModelClass, settings, reducer, snapshot_shape, rank, trai
 
 
 def _train_for_trial(ModelClass, settings, reducer, snapshot_shape, rank, latent_list, phi_list,
-                      epochs, cv_folds, cv_walking, device_list, trial=None, seed=42):
+                      epochs, cv_folds, cv_type, embargo_steps, device_list, trial=None):
     training_cfg = settings["training"]
     past_len = training_cfg["n_past"]
     rollout_steps = int(training_cfg.get("rollout_steps", 1))
 
     splits = _build_train_val_splits(latent_list, phi_list, past_len, rollout_steps, cv_folds,
-                                      cv_walking=cv_walking, seed=seed)
+                                      cv_type=cv_type, embargo_steps=embargo_steps)
 
     all_avg_val, all_unweighted, all_times, all_infer = [], [], [], []
     for fold_id, (train_ds, val_ds) in enumerate(splits):
@@ -248,7 +260,7 @@ def _train_for_trial(ModelClass, settings, reducer, snapshot_shape, rank, latent
 # ─────────────────────────────────────────────────────────────────────────────
 
 def run_stage(stage_name: str, stage_cfg: Dict[str, Any], base_settings: Dict[str, Any],
-              epochs_cfg: Dict[str, int], cv_folds: int, cv_walking: bool,
+              epochs_cfg: Dict[str, int], cv_folds: int, cv_type: str, embargo_steps: int,
               reducer, snapshot_shape, latent_list, phi_list, rom, device_list, ModelClass,
               pruning_cfg: Dict[str, Any], storage: Optional[str] = None,
               study_name: Optional[str] = None, n_trials_override: Optional[int] = None):
@@ -312,7 +324,7 @@ def run_stage(stage_name: str, stage_cfg: Dict[str, Any], base_settings: Dict[st
         try:
             avg_val, unweighted, training_time, inference_time = _train_for_trial(
                 ModelClass, settings, reducer, snapshot_shape, rank, latent_list, phi_list,
-                epochs_cfg["transformer"], cv_folds, cv_walking, device_list, trial=trial,
+                epochs_cfg["transformer"], cv_folds, cv_type, embargo_steps, device_list, trial=trial,
             )
             print(f"[HPO/{stage_name} trial {trial.number}] avg_val={avg_val:.6f} "
                   f"training_time={training_time:.2f}s inference_time={inference_time:.6f}s", flush=True)
@@ -413,17 +425,14 @@ def main() -> None:
     print(f"[HPO] rank_POD fissato = {reducer.effective_rank} (da train.json, non ottimizzato). "
           f"Errore di ricostruzione POD: {reducer.reconstruction_error:.6e}")
 
-    # cv_folds/cv_walking vivono SOLO in HPO.json (non in train.json: usati
-    # esclusivamente qui per la validazione degli iperparametri).
-    cv_folds = int(hpo_cfg.get("cv_folds", 0))
-    cv_walking = bool(hpo_cfg.get("cv_walking", True))
-    if cv_folds < 2:
-        cv_desc = "random split 70/30 (no CV)"
-    elif cv_walking:
-        cv_desc = "walk-forward CV (rispetta l'ordine temporale)"
-    else:
-        cv_desc = "k-fold classico (shuffle)"
-    print(f"[HPO] cv_folds: {cv_folds} | cv_walking: {cv_walking} -> {cv_desc}")
+    # cv_folds/cv_type/cv_embargo_steps vivono SOLO in HPO.json (non in
+    # train.json: usati esclusivamente qui per la validazione degli iperparametri).
+    cv_folds = int(hpo_cfg.get("cv_folds", 2))
+    cv_type = hpo_cfg.get("cv_type", "walking")
+    embargo_steps = int(hpo_cfg.get("cv_embargo_steps", 0))
+    cv_desc = ("walk-forward CV (rispetta l'ordine temporale)" if cv_type == "walking"
+               else f"Purged Block K-Fold con Embargo (embargo_steps={embargo_steps})")
+    print(f"[HPO] cv_folds: {cv_folds} | cv_type: {cv_type} -> {cv_desc}")
 
     epochs_cfg = {"transformer": int(hpo_cfg["epochs"].get("transformer", 100))}
     pruning_cfg = hpo_cfg.get("pruning", {})
@@ -434,7 +443,7 @@ def main() -> None:
     for stage_name, stage_cfg in hpo_cfg["stages"].items():
         print(f"\n{'#' * 60}\n[HPO] Stadio '{stage_name}'\n{'#' * 60}", flush=True)
         study, experiments, best_applied_params = run_stage(
-            stage_name, stage_cfg, base_settings, epochs_cfg, cv_folds, cv_walking,
+            stage_name, stage_cfg, base_settings, epochs_cfg, cv_folds, cv_type, embargo_steps,
             reducer, snapshot_shape, latent_list, phi_scaled_list, rom, device_list, ModelClass,
             pruning_cfg, storage=args.storage, study_name=args.study_name,
             n_trials_override=args.n_trials_per_worker,
@@ -466,7 +475,8 @@ def main() -> None:
         "model": model_name,
         "config_used": str(args.config),
         "cv_folds": cv_folds,
-        "cv_walking": cv_walking,
+        "cv_type": cv_type,
+        "cv_embargo_steps": embargo_steps,
         "epochs": hpo_cfg["epochs"],
         "results_by_stage": all_results,
     }, output_path)

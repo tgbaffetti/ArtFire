@@ -289,40 +289,39 @@ def build_contiguous_folds(n_samples: int, cv_folds: int):
     return folds
 
 
-def build_classic_kfold_splits(n_windows: int, k: int, seed: int = 42):
-    """Cross-validation "classica" (k-fold shuffled, non temporale): le
-    finestre vengono mischiate e divise in k blocchi quasi uguali; ogni
-    blocco funge da validation una volta, gli altri k-1 da training.
-    Alternativa a build_contiguous_folds (walk-forward) quando si vuole
-    ignorare l'ordine temporale (HPO.json: "cv_walking": false)."""
-    if k < 2:
-        raise ValueError(f"k deve essere >= 2, ricevuto {k}")
-    rng = np.random.RandomState(seed)
-    perm = rng.permutation(n_windows)
-    chunks = np.array_split(perm, k)
+def build_embargo_kfold_splits(n_samples: int, cv_folds: int, window_total: int, embargo_steps: int = 0):
+    """Purged Block K-Fold CV con Embargo.
+
+    Divide n_samples in cv_folds blocchi contigui nel tempo. Per il fold i:
+    il blocco i e' validation, i restanti cv_folds-1 blocchi sono training.
+    Dal training vengono rimossi (purge + embargo):
+      - tutte le finestre che si sovrappongono temporalmente al blocco di
+        validation (purge: window_total-1 step prima del blocco)
+      - un margine aggiuntivo di embargo_steps timestep sia subito prima
+        sia subito dopo il blocco di validation (buffer di sicurezza contro
+        correlazione seriale residua).
+    Ritorna una lista di (train_idx, val_idx), indici di inizio finestra
+    (snapshot-level, filtrati poi da LatentWindowDataset)."""
+    if cv_folds < 2:
+        raise ValueError(f"cv_folds deve essere >= 2, ricevuto {cv_folds}")
+
+    chunk_sizes = np.full(cv_folds, n_samples // cv_folds, dtype=int)
+    chunk_sizes[: n_samples % cv_folds] += 1
+    boundaries = np.concatenate([[0], np.cumsum(chunk_sizes)])
+
+    all_starts = np.arange(max(0, n_samples - window_total + 1))
     folds = []
-    for i in range(k):
-        val_idx = np.sort(chunks[i])
-        train_idx = np.sort(np.concatenate([chunks[j] for j in range(k) if j != i]))
+    for i in range(cv_folds):
+        v_start, v_end = int(boundaries[i]), int(boundaries[i + 1])
+        val_idx = all_starts[(all_starts >= v_start) & (all_starts < v_end)]
+
+        purge_left = window_total - 1
+        excl_start = max(0, v_start - purge_left - embargo_steps)
+        excl_end = min(n_samples, v_end + embargo_steps)
+        train_idx = all_starts[(all_starts < excl_start) | (all_starts >= excl_end)]
+
         folds.append((train_idx, val_idx))
     return folds
-
-
-def random_window_split(n_windows: int, val_fraction: float = 0.3, seed: int = 42):
-    """
-    Split casuale (non temporale) usato quando cv_folds == 0: alcune finestre
-    vanno in training, altre in validation, scelte a caso dal pool di
-    finestre disponibili.
-    """
-    if n_windows < 2:
-        raise ValueError(f"Servono almeno 2 finestre per uno split random, trovate {n_windows}")
-    rng = np.random.RandomState(seed)
-    perm = rng.permutation(n_windows)
-    n_val = max(1, int(round(n_windows * val_fraction)))
-    n_val = min(n_val, n_windows - 1)
-    val_idx = np.sort(perm[:n_val])
-    train_idx = np.sort(perm[n_val:])
-    return train_idx, val_idx
 
 
 # ─────────────────────────────────────────────────────────────────────────────
